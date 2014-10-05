@@ -376,7 +376,7 @@ ISR(TIMER2_OVF_vect)         //overflow interrupt vector
 
 ISR(PCINT0_vect)
 {
-	_delay_ms(60);
+	_delay_ms(80);
 
 	if (((PINB & (1<<k1)) == (1<<k1)) & ((PINB & (1<<k2)) == (1<<k2)) & ((PINB & (1<<kmenu)) == (1<<kmenu)) & ((PINB & (1<<kok)) == (1<<kok))) 
 	//if (!(PINB & (1<<k1)) | !(PINB & (1<<k2)) | !(PINB & (1<<kmenu)) | !(PINB & (1<<kok))) 
@@ -385,7 +385,7 @@ ISR(PCINT0_vect)
 		timer_key = 0;
 		return;
 	}
-	_delay_ms(30);
+	_delay_ms(10);
 
 	if (((PINB & (1<<k1)) == (1<<k1)) & ((PINB & (1<<k2)) == (1<<k2)) & ((PINB & (1<<kmenu)) == (1<<kmenu)) & ((PINB & (1<<kok)) == (1<<kok))) 
 	//if (!(PINB & (1<<k1)) | !(PINB & (1<<k2)) | !(PINB & (1<<kmenu)) | !(PINB & (1<<kok))) 
