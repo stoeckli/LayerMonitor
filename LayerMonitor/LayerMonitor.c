@@ -91,9 +91,11 @@ unsigned char mode;
 
 int batt;
 long f_rel;
+long f_zero;
 long f_abs;
 long l_rel;
 long l_abs;
+long l_zero;
 
 int main(void)             
 { 
@@ -139,6 +141,8 @@ int main(void)
 
 	TIMSK2 = 0x01;			       		//set 8-bit Timer/Counter2 Overflow Interrupt Enable 
 										//TIMSK2 |= (1<<TOIE2);	//Clear the Timer/Counter2 Interrupt Flags.
+										
+	SPI_init();
    
    	sei();
 
@@ -155,6 +159,85 @@ int main(void)
 return 0; 
 
 } 
+
+
+/*****************************************************************************
+*
+*	Function name : SPI_init
+*
+*	Returns :		None
+*
+*	Parameters :	None
+*
+*	Purpose :		Sets up the HW SPI in Master mode, Mode 3
+*					Note -> does notuse SS line to control the DF CS-line.
+*
+******************************************************************************/
+void SPI_init (void)
+{
+	PORTB |= (1<<PB3) | (1<<PB2) | (1<<PB1); // MSt SS not used | (1<<PB0)
+	DDRB |= (1<<DDB2) | (1<<DDB1);		//Set MOSI, SCK  (MSt | (1<<DDB0) SS as outputs)
+
+	//SPSR = (1<<SPI2X);                                      //SPI double speed settings
+	SPCR = (1<<SPE) | (1<<MSTR) | (1<<CPHA) | (1<<CPOL);	//Enable SPI in Master mode, mode 3, Fosc/4
+}
+
+/*****************************************************************************
+*
+*	Function name : SPI_RW
+*
+*	Returns :		Byte read from SPI data register (any value)
+*
+*	Parameters :	Byte to be written to SPI data register (any value)
+*
+*	Purpose :		Read and writes one byte from/to SPI master
+*
+******************************************************************************/
+unsigned char SPI_RW (unsigned char output)
+{
+	unsigned char input;
+	
+	SPDR = output;							//put byte 'output' in SPI data register
+	while(!(SPSR & 0x80));					//wait for transfer complete, poll SPIF-flag
+	input = SPDR;							//read value in SPI data reg.
+	
+	return input;							//return the byte clocked in from SPI slave
+}
+
+long get_freq ()
+{
+	unsigned char byteFreq;
+	unsigned char outChar;
+	long freq;
+	
+	outChar = 'A';
+	byteFreq = SPI_RW (outChar);
+	_delay_us(100);
+	
+	outChar = '3';
+	byteFreq = SPI_RW (outChar);
+	freq = byteFreq;
+	_delay_us(100);
+	
+	outChar = '2';
+	byteFreq = SPI_RW (outChar);
+	freq = freq * 256 + byteFreq ;
+	_delay_us(100);
+	
+	outChar = '1';
+	byteFreq = SPI_RW (outChar);
+	freq = freq * 256 + byteFreq ;
+	_delay_us(100);
+	
+	outChar = '0';
+	byteFreq = SPI_RW (outChar);
+	freq = freq * 256 + byteFreq ;
+	_delay_us(100);
+	
+	return freq;
+}
+
+
 
 ISR(TIMER2_OVF_vect)         //overflow interrupt vector 
 { 
@@ -258,16 +341,60 @@ ISR(TIMER2_OVF_vect)         //overflow interrupt vector
 	PORTC |= (1<<p_buzzer); 	
 
 	if (mode=='A')
-	{
-		f_abs = 1234567;
+	{		
 		unsigned char valuetext[7];
-		ultoa(f_abs, valuetext, 10);
-		Write_LCD (lcd_l2+6,0);
-		LCD_print_str   (valuetext);
 
+		f_abs = get_freq();
+
+		//f_abs = 1234567;
+		//ltoa(f_abs, valuetext, 10);
+
+		double	f_dbl;
+		f_dbl = f_abs;
+		dtostrf(f_dbl,7,0,valuetext);
+
+		Write_LCD (lcd_l2+0,0);
+		LCD_print_str   (valuetext);
+	}
+
+
+	if (mode=='R')
+	{
+		unsigned char valuetext[7];
+		
+		f_abs = get_freq();
+
+		//f_abs = 1234567;
+		//ltoa(f_abs, valuetext, 10);
+
+		double	f_dbl;
+		f_dbl = f_abs;
+		dtostrf(f_dbl,7,0,valuetext);
+
+		Write_LCD (lcd_l2+0,0);
+		LCD_print_str   (valuetext);
+	}
+
+	if (mode=='L')
+	{
+		long f_sig;
+		unsigned char valuetext[7];
+
+			
+		double	f_dbl;
+		f_dbl = -22.3333;
+
+		dtostrf(f_dbl,6,2,valuetext);
+
+		Write_LCD (lcd_l2+0,0);
+		LCD_print_str   (valuetext);
+		
+	
 
 		//read frequency and output
 	}
+
+
 
 
 } 
@@ -348,26 +475,6 @@ ISR(PCINT0_vect)					//key pressed
 		 timer_menu = 20; 
 		 switch (menu)
 		 {
-
- 
-			/*case 0:
-				if (++t.hour==60) 
-			    { 
-			        t.hour=0; 
-			    }
-				Write_LCD (0x8B,0);
-				Write_LCD (t.hour/10+48,1);
-				Write_LCD (t.hour%10+48,1);
-				break;
-			case 0:
-				if (++t.minute==60) 
-			    { 
-			        t.minute=0; 
-			    }
-				Write_LCD (0x8E,0);
-				Write_LCD (t.minute/10+48,1);
-				Write_LCD (t.minute%10+48,1);
-				break;*/
 			case 1:
 				if (++contrast==4) 
 			    { 
@@ -377,9 +484,9 @@ ISR(PCINT0_vect)					//key pressed
 				Write_LCD (contrast+48,1);
 				comp_contrast(contrast);
 				break;
+
 			case 2:
 				break;
-
 			
 			default:
 				timer_menu = 0;
@@ -409,37 +516,10 @@ ISR(PCINT0_vect)					//key pressed
 		 timer_menu = 20; 
 		 switch (menu)
 		 {
-/*			case 0:
-				++menu;
-				Write_LCD (0x80,0);
-  				LCD_print_str   ("Stunden:   00:00");
-				Write_LCD (0x8B,0);
-				Write_LCD (t.hour/10+48,1);
-				Write_LCD (t.hour%10+48,1);
-
-				Write_LCD (0x8E,0);
-				Write_LCD (t.minute/10+48,1);
-				Write_LCD (t.minute%10+48,1);
-
- 				break;
-			case 0:
-
-				++menu;
-				Write_LCD (0x80,0);
-  				LCD_print_str   ("Minuten:   00:00");
-
-				Write_LCD (0x8B,0);
-				Write_LCD (t.hour/10+48,1);
-				Write_LCD (t.hour%10+48,1);
-
-				Write_LCD (0x8E,0);
-				Write_LCD (t.minute/10+48,1);
-				Write_LCD (t.minute%10+48,1);
-				break;*/
 			case 1:
 				++menu;
 				Write_LCD (0x80,0);
-  				LCD_print_str   ("Batterie:      V");
+  				LCD_print_str   ("Battery:       V");
 				batt=battery_voltage();
 				Write_LCD (0x8A,0);
 				Write_LCD (batt/100+48,1);
@@ -456,6 +536,7 @@ ISR(PCINT0_vect)					//key pressed
 			
 			default:
 				menu = 0;
+				mode_text (mode);
 				//LCD_Time();
 		 }
 
@@ -466,7 +547,9 @@ ISR(PCINT0_vect)					//key pressed
 
 	
 	
-} 
+}
+
+
 
 void LCD_build(unsigned char location, unsigned char *ptr){
       unsigned char i;
@@ -648,106 +731,6 @@ void battery_symbol(void)
 }
 
 
-/*****************************************************************************
-*
-*	Function name : SPI_init
-*
-*	Returns :		None
-*
-*	Parameters :	None
-*
-*	Purpose :		Sets up the HW SPI in Master mode, Mode 3
-*					Note -> does notuse SS line to control the DF CS-line.
-*
-******************************************************************************/
-void SPI_init (void)
-{
-	PORTB |= (1<<PB3) | (1<<PB2) | (1<<PB1); // MSt SS not used | (1<<PB0)
-	DDRB |= (1<<DDB2) | (1<<DDB1);		//Set MOSI, SCK  (MSt | (1<<DDB0) SS as outputs)
-
-	//SPSR = (1<<SPI2X);                                      //SPI double speed settings
-	SPCR = (1<<SPE) | (1<<MSTR) | (1<<CPHA) | (1<<CPOL);	//Enable SPI in Master mode, mode 3, Fosc/4
-}
-
-/*****************************************************************************
-*
-*	Function name : SPI_RW
-*
-*	Returns :		Byte read from SPI data register (any value)
-*
-*	Parameters :	Byte to be written to SPI data register (any value)
-*
-*	Purpose :		Read and writes one byte from/to SPI master
-*
-******************************************************************************/
-unsigned char SPI_RW (unsigned char output)
-{
-	unsigned char input;
-	
-	SPDR = output;							//put byte 'output' in SPI data register
-	while(!(SPSR & 0x80));					//wait for transfer complete, poll SPIF-flag
-	input = SPDR;							//read value in SPI data reg.
-	
-	return input;							//return the byte clocked in from SPI slave
-}
-
-
-/*****************************************************************************
-*
-*   Function name : FREQ_display
-*
-*   Returns :       None
-*
-*   Parameters :    None
-*
-*   Purpose :       reads frequency
-*                   and puts it out on the LCD.
-*
-*****************************************************************************/
-void FREQ_display(void)
-{
-	int byteFreq =0;
-	char str1[8] /*={1,2,3,4,5,6,7,8}*/;
-	int z;
-	char outc;
-	long FREQ;
-	
-	SPI_RW ('A');
-	_delay_us(100);
-	
-	FREQ = SPI_RW ('3');
-	//FREQ = 0x00;
-	_delay_us(100);
-	
-
-	byteFreq = SPI_RW ('2');
-	//	byteFreq = 0x3d;
-	FREQ= FREQ * 256 + byteFreq ;
-	_delay_us(100);
-	
-	byteFreq = SPI_RW ('1');
-	//byteFreq = 0x09;
-	FREQ= FREQ * 256 + byteFreq ;
-	_delay_us(100);
-	
-	byteFreq = SPI_RW ('0');
-	//byteFreq = 0x00;
-	FREQ= FREQ * 256 + byteFreq ;
-	_delay_us(100);
-	
-	
-	//FREQ=4685261;
-	//for (z=1; z<7; z++)
-	for (z=5;z >= 0;z--)
-	{
-		outc = FREQ % 10 + 48;
-		//str1[z] = z+48; // Code 48 -> ascii 0++
-		LCD_putc (z,outc);
-		FREQ = FREQ/10;
-	}
-	//
-	////LCD_puts(&str1,0);
-}
 
 void mode_text (char md)
 {
@@ -779,3 +762,5 @@ void mode_text (char md)
 		break;
 	}
 }
+
+
