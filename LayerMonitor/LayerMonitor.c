@@ -23,8 +23,8 @@
 
 #define	kmode					1		//key pins, Port B						
 #define kreset					2
-#define kmenu					3
-#define kok						4
+//#define kmenu					3
+//#define kok					4
 
 #define p_light					4		// Port D
 #define p_buzzer				2		//Port C
@@ -99,8 +99,8 @@ long l_zero;
 
 int main(void)             
 { 
-  DDRB=0x01;
-  PORTB=0x3E;
+  DDRB=0x29;
+  PORTB=0x06;
 
   DDRC=0xFE;
   PORTC=0x06;
@@ -122,8 +122,8 @@ int main(void)
 
 	PCMSK0 |= (1<<PCINT1); //  tell pin change mask to listen to pin15
    	PCMSK0 |= (1<<PCINT2); //  tell pin change mask to listen to pin16
-   	PCMSK0 |= (1<<PCINT3); //  tell pin change mask to listen to pin17
-   	PCMSK0 |= (1<<PCINT4); //  tell pin change mask to listen to pin17
+   	//PCMSK0 |= (1<<PCINT3); //  tell pin change mask to listen to pin17
+   	//PCMSK0 |= (1<<PCINT4); //  tell pin change mask to listen to pin17
    	PCICR  |= (1<<PCIE0); // enable PCINT interrupt in the general interrupt mask
 
 
@@ -234,6 +234,9 @@ long get_freq ()
 	freq = freq * 256 + byteFreq ;
 	_delay_us(100);
 	
+
+	if ((freq < 0) |(freq > 9000000)) freq = 0;
+
 	return freq;
 }
 
@@ -259,12 +262,12 @@ ISR(TIMER2_OVF_vect)         //overflow interrupt vector
 			LCD_print_str ("     ");
 	    }
 		
-		if (((PINB & (1<<kok)) == 0) & (menu == 0))         //sleep
+/*		if (((PINB & (1<<kok)) == 0) & (menu == 0))         //sleep
 	    { 
 			LCD_Sleep();
-	    }
-		
-		if (((PINB & (1<<kmenu)) == 0) & (menu == 0))         //enter menu
+		 }
+*/			
+		/*if (((PINB & (1<<kmenu)) == 0) & (menu == 0))         //enter menu
 	    { 
 			 switch (menu)
 			 {
@@ -278,8 +281,8 @@ ISR(TIMER2_OVF_vect)         //overflow interrupt vector
 
 				break;
 			}
-
-		}
+		
+		}*/
 	}
 
 
@@ -342,25 +345,26 @@ ISR(TIMER2_OVF_vect)         //overflow interrupt vector
 
 	if (mode=='A')
 	{		
-		unsigned char valuetext[7];
+		unsigned char valuetext[8];
 
 		f_abs = get_freq();
+		
 
 		//f_abs = 1234567;
 		//ltoa(f_abs, valuetext, 10);
 
 		double	f_dbl;
 		f_dbl = f_abs;
-		dtostrf(f_dbl,7,0,valuetext);
+		dtostrf(f_dbl,8,0,valuetext);
 
-		Write_LCD (lcd_l2+0,0);
+		Write_LCD (lcd_l2+5,0);
 		LCD_print_str   (valuetext);
 	}
 
 
 	if (mode=='R')
 	{
-		unsigned char valuetext[7];
+		unsigned char valuetext[8];
 		
 		f_abs = get_freq();
 
@@ -368,10 +372,10 @@ ISR(TIMER2_OVF_vect)         //overflow interrupt vector
 		//ltoa(f_abs, valuetext, 10);
 
 		double	f_dbl;
-		f_dbl = f_abs;
-		dtostrf(f_dbl,7,0,valuetext);
+		f_dbl = f_abs - f_zero;
+		dtostrf(f_dbl,8,0,valuetext);
 
-		Write_LCD (lcd_l2+0,0);
+		Write_LCD (lcd_l2+5,0);
 		LCD_print_str   (valuetext);
 	}
 
@@ -403,8 +407,7 @@ ISR(PCINT0_vect)					//key pressed
 {
 	_delay_ms(80);
 
-	if (((PINB & (1<<kmode)) == (1<<kmode)) & ((PINB & (1<<kreset)) == (1<<kreset)) & ((PINB & (1<<kmenu)) == (1<<kmenu)) & ((PINB & (1<<kok)) == (1<<kok))) 
-	//if (!(PINB & (1<<kmode)) | !(PINB & (1<<kreset)) | !(PINB & (1<<kmenu)) | !(PINB & (1<<kok))) 
+	if (((PINB & (1<<kmode)) == (1<<kmode)) & ((PINB & (1<<kreset)) == (1<<kreset))) 
 
 	{
 		timer_key = 0;
@@ -412,8 +415,8 @@ ISR(PCINT0_vect)					//key pressed
 	}
 	_delay_ms(10);
 
-	if (((PINB & (1<<kmode)) == (1<<kmode)) & ((PINB & (1<<kreset)) == (1<<kreset)) & ((PINB & (1<<kmenu)) == (1<<kmenu)) & ((PINB & (1<<kok)) == (1<<kok))) 
-	//if (!(PINB & (1<<kmode)) | !(PINB & (1<<kreset)) | !(PINB & (1<<kmenu)) | !(PINB & (1<<kok))) 
+	if (((PINB & (1<<kmode)) == (1<<kmode)) & ((PINB & (1<<kreset)) == (1<<kreset))) 
+ 
 	{
 		timer_key = 0;
 		return;
@@ -466,11 +469,11 @@ ISR(PCINT0_vect)					//key pressed
 	if ((PINB & (1<<kreset)) == 0)         //reset 
     { 
 		
-		f_rel=0;
-		l_rel=0;
+		f_zero = f_abs;
+		l_zero = l_abs;
     }
 
-	if ((PINB & (1<<kok)) == 0)         //Select
+/*	if ((PINB & (1<<kok)) == 0)         //Select
     { 
 		 timer_menu = 20; 
 		 switch (menu)
@@ -510,8 +513,8 @@ ISR(PCINT0_vect)					//key pressed
 		 }
 
     }
-
-	if ((PINB & (1<<kmenu)) == 0)         //Menu
+*/
+/*	if ((PINB & (1<<kmenu)) == 0)         //Menu
     { 
 		 timer_menu = 20; 
 		 switch (menu)
@@ -541,7 +544,7 @@ ISR(PCINT0_vect)					//key pressed
 		 }
 
     }
-
+	*/
 	timer_key = 2;
 
 
