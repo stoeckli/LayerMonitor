@@ -51,6 +51,7 @@
       <ToolName>AVR Dragon</ToolName>
     </com_atmel_avrdbg_tool_avrdragon>
     <avrtoolinterface>debugWIRE</avrtoolinterface>
+    <preserveEEPROM>True</preserveEEPROM>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
     <ToolchainSettings>

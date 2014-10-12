@@ -16,6 +16,7 @@
 #include <stdlib.h> 
 #include <stdio.h> 
 #include <stdint.h>
+#include <avr/eeprom.h>
 
 #define Key_Port_DDR			DDRB	//Key Port
 #define Key_Port_Write			PORTB
@@ -46,7 +47,7 @@
 #define sym_speaker				0x06
 #define sym_break				0x07
 
-static unsigned char pattern0[8] = {17,17,17,25,22,16,16,0} ; 	//micro
+static unsigned char pattern0[8] = {0,17,17,25,22,16,16,0} ; 	//micro
 static unsigned char pattern1[8] = {4,10,2,4,14,0,0,0} ; 		// squ
 static unsigned char pattern2[8] = {12,30,18,18,18,18,30,0} ; 	//empty
 static unsigned char pattern3[8] = {12,30,18,18,30,30,30,0} ; 	//half
@@ -64,7 +65,7 @@ unsigned char tchar;
 unsigned char rchar;
 unsigned char LCD_PWR;
 unsigned char lcddata[0]; 
-
+unsigned char reset;
 
 typedef struct{ 
 unsigned char   second;      //enter the current time, date, month, and year 
@@ -93,9 +94,17 @@ int batt;
 long f_rel;
 long f_zero;
 long f_abs;
-long l_rel;
-long l_abs;
 long l_zero;
+long l_abs;
+double l_rel;
+double l_fact;
+char   l_fact_1;
+char   l_fact_2;
+char   l_fact_3;
+
+
+float l_factor EEMEM;
+
 
 int main(void)             
 { 
@@ -110,11 +119,19 @@ int main(void)
   menu = 0;
   timer_menu = 0;
   contrast = 2;
-  timer_LCD = 10;
+  timer_LCD = 2;
   timer_key = 0;
   mode = 'A';
   f_rel = 0;
   l_rel = 0;
+  l_fact = 20;
+  
+  l_fact = eeprom_read_float(&l_factor);
+  if ((l_fact < 0.1) | (l_fact > 99.9))
+  {
+	  l_fact = 20.0;
+	  eeprom_update_float(&l_factor,l_fact); 
+  }
   
   LCD_Wake();
 
@@ -153,7 +170,7 @@ int main(void)
         while((ASSR & (1<< OCR2AUB)));   // wait for finish
  
         set_sleep_mode(SLEEP_MODE_PWR_SAVE);
-        sleep_mode();                   // chnage to sleep mode
+        sleep_mode();                   // change to sleep mode
  
     } 
 return 0; 
@@ -246,56 +263,54 @@ ISR(TIMER2_OVF_vect)         //overflow interrupt vector
 { 
 	if (timer_key > 1) timer_key++;
 
-	if (timer_key > 3)
+	if (timer_key == 4)
 	{
-		timer_key = 1;
+		//timer_key = 1;
 
-		if ((PINB & (1<<kmode)) == 0)         //no use 
+		if (((PINB & (1<<kmode)) == 0) & (menu == 0))         //no use 
 	    { 
-
-
-	    }
-
-		if ((PINB & (1<<kreset)) == 0)         //reset thickness
-	    { 
-			Write_LCD (0x80,0);
-			LCD_print_str ("     ");
-	    }
-		
-/*		if (((PINB & (1<<kok)) == 0) & (menu == 0))         //sleep
-	    { 
-			LCD_Sleep();
-		 }
-*/			
-		/*if (((PINB & (1<<kmenu)) == 0) & (menu == 0))         //enter menu
-	    { 
-			 switch (menu)
-			 {
+			timer_menu = 20;
+			switch (menu)
+			{
 				case 0:
 				++menu;
 				Write_LCD (0x80,0);
-				LCD_print_str   ("Kontrast:      ");
+				LCD_print_str   ("Contrast:      ");
 				Write_LCD (0x8F,0);
 				Write_LCD (contrast+48,1);
 				comp_contrast(contrast);
-
+				Write_LCD (15,0);
+				Write_LCD (lcd_l1+15,0);
 				break;
 			}
-		
-		}*/
+	    }
+
+		if (((PINB & (1<<kreset)) == 0) & (menu == 0))         //reset thickness
+	    { 
+			mode_text('0');
+			reset = 1;
+			f_zero = f_abs;
+			l_zero = l_abs;
+	    }
 	}
 
+	if (((PINB & (1<<kreset)) == 0) & (timer_key > 5))
+		{
+			LCD_Sleep();
+		}
 
 	if (timer_menu != 0)
 	{
 		if (--timer_menu == 0)
 		{
 			menu = 0;
+			batt = battery_voltage();
+			battery_symbol();
+			mode_text(mode);								
+
 		}
 
 	}
-
-
 
 
 	if (++t.second==60)         //keep track of time, date, month, and year 
@@ -332,7 +347,9 @@ ISR(TIMER2_OVF_vect)         //overflow interrupt vector
 			{
 				light = 0;
 				timer_light = 0;
-				PORTD &=~ (1<<p_light); 
+				PORTD &=~ (1<<p_light);
+				comp_contrast(contrast);
+
 			}
 
 		}
@@ -343,7 +360,7 @@ ISR(TIMER2_OVF_vect)         //overflow interrupt vector
  
 	PORTC |= (1<<p_buzzer); 	
 
-	if (mode=='A')
+	if ((mode=='A') & (menu == 0))
 	{		
 		unsigned char valuetext[8];
 
@@ -362,7 +379,7 @@ ISR(TIMER2_OVF_vect)         //overflow interrupt vector
 	}
 
 
-	if (mode=='R')
+	if ((mode=='R') & (menu == 0))
 	{
 		unsigned char valuetext[8];
 		
@@ -379,19 +396,28 @@ ISR(TIMER2_OVF_vect)         //overflow interrupt vector
 		LCD_print_str   (valuetext);
 	}
 
-	if (mode=='L')
+	if ((mode=='L') & (menu == 0))
 	{
-		long f_sig;
-		unsigned char valuetext[7];
-
-			
+		unsigned char valuetext[9];
 		double	f_dbl;
-		f_dbl = -22.3333;
 
-		dtostrf(f_dbl,6,2,valuetext);
+		f_abs = get_freq();			
 
+		f_dbl = f_zero-f_abs;
+		l_rel = f_dbl/l_fact;
+		
 		Write_LCD (lcd_l2+0,0);
-		LCD_print_str   (valuetext);
+		
+		if ((l_rel > -10000.0) & (l_rel < 10000.0))
+		{
+			dtostrf(l_rel,9,1,valuetext);
+			LCD_print_str   (valuetext);
+		}
+		else
+		{
+			LCD_print_str   ("        -");
+		}
+
 		
 	
 
@@ -406,14 +432,21 @@ ISR(TIMER2_OVF_vect)         //overflow interrupt vector
 ISR(PCINT0_vect)					//key pressed
 {
 	_delay_ms(80);
+	
+	if (reset)
+	{
+		reset = 0;
+		mode_text(mode);
+	}
 
 	if (((PINB & (1<<kmode)) == (1<<kmode)) & ((PINB & (1<<kreset)) == (1<<kreset))) 
 
 	{
+
 		timer_key = 0;
 		return;
 	}
-	_delay_ms(10);
+	_delay_ms(40);
 
 	if (((PINB & (1<<kmode)) == (1<<kmode)) & ((PINB & (1<<kreset)) == (1<<kreset))) 
  
@@ -425,14 +458,14 @@ ISR(PCINT0_vect)					//key pressed
 	if (!LCD_PWR)
 	{
 		LCD_Wake();
-		timer_LCD = 10;
+		timer_LCD = 2;
 		return;			
 	}
 
 
 	if (timer_LCD != 0)
 	{
-		timer_LCD = 10;
+		timer_LCD = 2;
 
 	}
 
@@ -445,37 +478,92 @@ ISR(PCINT0_vect)					//key pressed
 
 	if ((PINB & (1<<kmode)) == 0)         //mode change
     { 
-		switch (mode)
-		{
-			case 'A':
-				mode = 'R';
-				mode_text(mode);								
-			break;
+		 switch (menu)
+		 {
+			case 1:
+				++menu;
+				Write_LCD (lcd_l1,0);
+				LCD_print_str   ("  ");
+				int layerfactor;
+				layerfactor = l_fact * 10;
+				l_fact_1 = layerfactor/100;
+				l_fact_2 = layerfactor%100/10;
+				l_fact_3 = layerfactor%10;
+				Write_LCD (l_fact_1 + 48,1);
+				Write_LCD (l_fact_2 + 48,1);
+				Write_LCD ('.',1);
+				Write_LCD (l_fact_3 + 48,1);				
+				LCD_print_str   (" Hz¥cm");
+				Write_LCD(1,1);
+				Write_LCD('/',1);
+				Write_LCD(0,1);
+				Write_LCD('g',1);
+										
+				Write_LCD (15,0);
+				Write_LCD (lcd_l1+2,0);
+				break;	
+				
+			case 2:
+				++menu;
+				Write_LCD (lcd_l1+3,0);
+				break;	
+			case 3:
+				++menu;
+				Write_LCD (lcd_l1+5,0);
+				break;	
+			case 4:
+				eeprom_update_float(&l_factor, l_fact);
+				++menu;
+				Write_LCD (12,0); //cursor off
+				Write_LCD (0x80,0);
+  				LCD_print_str   ("Battery:       V");
+				batt=battery_voltage();
+				Write_LCD (0x8A,0);
+				Write_LCD (batt/100+48,1);
+				Write_LCD ('.',1);
+				Write_LCD (batt%100/10+48,1);
+				Write_LCD (batt%10+48,1);
+				break;
+
+			case 5:
+				++menu;
+				Write_LCD (12,0); //cursor off
+				Write_LCD (0x80,0);
+  				LCD_print_str   ("by stoeckli.net ");
+				break;
+
+
+
 			
-			case 'R':
-				mode = 'L';
-				mode_text(mode);								
-			break;
+			default:
+				menu = 0;
+				timer_menu = 0;
+				batt = battery_voltage();
+				battery_symbol();
+
+				switch (mode)
+				{
+					case 'A':
+						mode = 'R';
+						mode_text(mode);								
+					break;
 			
-			case'L':
-				mode = 'A';
-				mode_text(mode);								
-			break;
-		}
-		
+					case 'R':
+						mode = 'L';
+						mode_text(mode);								
+					break;
+			
+					case'L':
+						mode = 'A';
+						mode_text(mode);								
+					break;
+				}
+		 }
     }
 
 
 	if ((PINB & (1<<kreset)) == 0)         //reset 
     { 
-		
-		f_zero = f_abs;
-		l_zero = l_abs;
-    }
-
-/*	if ((PINB & (1<<kok)) == 0)         //Select
-    { 
-		 timer_menu = 20; 
 		 switch (menu)
 		 {
 			case 1:
@@ -486,9 +574,51 @@ ISR(PCINT0_vect)					//key pressed
 				Write_LCD (0x8F,0);
 				Write_LCD (contrast+48,1);
 				comp_contrast(contrast);
+				Write_LCD (15,0);
+				Write_LCD (lcd_l1+15,0);
+				timer_menu = 20; 
+				break;				
+				
+			case 2:
+				if (++l_fact_1 == 10) 
+			    { 
+			        l_fact_1 = 0; 
+			    }
+				Write_LCD(lcd_l1+2,0);
+				Write_LCD(l_fact_1 + 48, 1);
+				Write_LCD(lcd_l1+2,0);
+				l_fact = l_fact_1 * 10.0 + l_fact_2 * 1.0 + l_fact_3 * 0.1;			
+				timer_menu = 20; 
+				break;
+			case 3:
+				if (++l_fact_2 == 10) 
+			    { 
+			        l_fact_2 = 0; 
+			    }
+				Write_LCD(lcd_l1+3,0);
+				Write_LCD(l_fact_2 + 48, 1);
+				Write_LCD(lcd_l1+3,0);
+				l_fact = l_fact_1 * 10.0 + l_fact_2 * 1.0 + l_fact_3 * 0.1;			
+				timer_menu = 20; 
+				break;
+			case 4:
+				if (++l_fact_3 == 10) 
+			    { 
+			        l_fact_3 = 0; 
+			    }
+				Write_LCD(lcd_l1+5,0);
+				Write_LCD(l_fact_3 + 48, 1);
+				Write_LCD(lcd_l1+5,0);
+				l_fact = l_fact_1 * 10.0 + l_fact_2 * 1.0 + l_fact_3 * 0.1;			
+				timer_menu = 20;
+				break;
+				
+			case 5:
+				timer_menu = 20;
 				break;
 
-			case 2:
+			case 6:
+				timer_menu = 20; 
 				break;
 			
 			default:
@@ -498,8 +628,7 @@ ISR(PCINT0_vect)					//key pressed
 					light = 1;
 					timer_light = 20;
 					PORTD |= (1<<p_light);
-					comp_contrast(contrast);
-					
+					comp_contrast(contrast);					
 					
 				}
 				else
@@ -513,43 +642,9 @@ ISR(PCINT0_vect)					//key pressed
 		 }
 
     }
-*/
-/*	if ((PINB & (1<<kmenu)) == 0)         //Menu
-    { 
-		 timer_menu = 20; 
-		 switch (menu)
-		 {
-			case 1:
-				++menu;
-				Write_LCD (0x80,0);
-  				LCD_print_str   ("Battery:       V");
-				batt=battery_voltage();
-				Write_LCD (0x8A,0);
-				Write_LCD (batt/100+48,1);
-				Write_LCD ('.',1);
-				Write_LCD (batt%100/10+48,1);
-				Write_LCD (batt%10+48,1);
-				break;
 
-			case 2:
-				++menu;
-				Write_LCD (0x80,0);
-  				LCD_print_str   ("by stoeckli.net ");
-				break;
-			
-			default:
-				menu = 0;
-				mode_text (mode);
-				//LCD_Time();
-		 }
-
-    }
-	*/
 	timer_key = 2;
 
-
-	
-	
 }
 
 
@@ -737,6 +832,7 @@ void battery_symbol(void)
 
 void mode_text (char md)
 {
+	Write_LCD (12,0); //no blinking
 	switch (md)
 	{
 		case 'A':
@@ -763,6 +859,12 @@ void mode_text (char md)
 			Write_LCD(lcd_l2+15,0);
 			Write_LCD(sym_squ,1);				
 		break;
+
+		case '0':
+			Write_LCD (lcd_l1,0);
+			LCD_print_str("RESET/ZERO     ");
+		break;
+
 	}
 }
 
