@@ -18,14 +18,17 @@
 #include <stdint.h>
 #include <avr/eeprom.h>
 
-#define Key_Port_DDR			DDRB	//Key Port
-#define Key_Port_Write			PORTB
-#define Key_Port_Read			PINB
+// #define Key_Port_DDR			DDRB	//Key Port
+// #define Key_Port_Write			PORTB
+// #define Key_Port_Read			PINB
 
+#define	p_power					0		//Port B
 #define	kmode					1		//key pins, Port B						
 #define kreset					2
-//#define kmenu					3
-//#define kok					4
+#define p_mosi					3
+#define p_miso					4
+#define p_sck					5
+
 
 #define p_light					4		// Port D
 #define p_buzzer				2		//Port C
@@ -108,11 +111,11 @@ float l_factor EEMEM;
 
 int main(void)             
 { 
-  DDRB=0x29;
-  PORTB=0x06;
-
-  DDRC=0xFE;
-  PORTC=0x06;
+  DDRB = ((1<<p_mosi)|(1<<p_sck)|(1<<p_power));   //0x29; 
+  PORTB = ((1<<kmode)|(1<<kreset)|(1<<p_sck));
+  
+  DDRC = ((1<<p_batt_en)|(1<<p_buzzer));
+  PORTC = 0x38;	//pullup empty pins
    
   tchar = ':';
 
@@ -139,8 +142,6 @@ int main(void)
 
 	PCMSK0 |= (1<<PCINT1); //  tell pin change mask to listen to pin15
    	PCMSK0 |= (1<<PCINT2); //  tell pin change mask to listen to pin16
-   	//PCMSK0 |= (1<<PCINT3); //  tell pin change mask to listen to pin17
-   	//PCMSK0 |= (1<<PCINT4); //  tell pin change mask to listen to pin17
    	PCICR  |= (1<<PCIE0); // enable PCINT interrupt in the general interrupt mask
 
 
@@ -158,8 +159,8 @@ int main(void)
 
 	TIMSK2 = 0x01;			       		//set 8-bit Timer/Counter2 Overflow Interrupt Enable 
 										//TIMSK2 |= (1<<TOIE2);	//Clear the Timer/Counter2 Interrupt Flags.
-										
-	SPI_init();
+
+	//SPCR = (1<<SPE) | (1<<MSTR) | (1<<CPHA) | (1<<CPOL);	//Enable SPI in Master mode, mode 3, Fosc/4
    
    	sei();
 
@@ -190,14 +191,14 @@ return 0;
 *					Note -> does notuse SS line to control the DF CS-line.
 *
 ******************************************************************************/
-void SPI_init (void)
+/*void SPI_init (void)
 {
 	PORTB |= (1<<PB3) | (1<<PB2) | (1<<PB1); // MSt SS not used | (1<<PB0)
 	DDRB |= (1<<DDB2) | (1<<DDB1);		//Set MOSI, SCK  (MSt | (1<<DDB0) SS as outputs)
 
 	//SPSR = (1<<SPI2X);                                      //SPI double speed settings
 	SPCR = (1<<SPE) | (1<<MSTR) | (1<<CPHA) | (1<<CPOL);	//Enable SPI in Master mode, mode 3, Fosc/4
-}
+}*/
 
 /*****************************************************************************
 *
@@ -213,11 +214,13 @@ void SPI_init (void)
 unsigned char SPI_RW (unsigned char output)
 {
 	unsigned char input;
-	
+	DDRB |= (1<<kreset);
+	SPCR = (1<<SPE) | (1<<MSTR) | (1<<CPHA) | (1<<CPOL);
 	SPDR = output;							//put byte 'output' in SPI data register
 	while(!(SPSR & 0x80));					//wait for transfer complete, poll SPIF-flag
 	input = SPDR;							//read value in SPI data reg.
-	
+	SPCR = 0;
+	DDRB &=~ (1<<kreset);	
 	return input;							//return the byte clocked in from SPI slave
 }
 
@@ -288,9 +291,10 @@ ISR(TIMER2_OVF_vect)         //overflow interrupt vector
 		if (((PINB & (1<<kreset)) == 0) & (menu == 0))         //reset thickness
 	    { 
 			mode_text('0');
-			reset = 1;
 			f_zero = f_abs;
 			l_zero = l_abs;
+			_delay_ms(500);
+			mode_text(mode);			
 	    }
 	}
 
@@ -433,11 +437,6 @@ ISR(PCINT0_vect)					//key pressed
 {
 	_delay_ms(80);
 	
-	if (reset)
-	{
-		reset = 0;
-		mode_text(mode);
-	}
 
 	if (((PINB & (1<<kmode)) == (1<<kmode)) & ((PINB & (1<<kreset)) == (1<<kreset))) 
 
@@ -661,9 +660,12 @@ void LCD_build(unsigned char location, unsigned char *ptr){
 void LCD_Sleep(void)
 {
 	PORTD = 0x00;
-	PORTB |= 0x01;
+	PORTB |= (1<<p_power);
 	LCD_PWR = 0x00;
-	timer_LCD = 0; 
+	PORTB &=~ (1<<p_sck);
+	timer_LCD = 0;
+	timer_menu = 0;
+	timer_light = 0;
 }
  
 void LCD_Time(void)
@@ -683,7 +685,7 @@ void LCD_Time(void)
 void LCD_Wake(void)
 {
 	LCD_PWR = 0x01;
-	PORTB &= 0xFE;
+	PORTB = ((1<<kmode)|(1<<kreset)|(1<<p_sck));
 	_delay_ms(100);
 	LCD_Init();
 	mode_text(mode);
